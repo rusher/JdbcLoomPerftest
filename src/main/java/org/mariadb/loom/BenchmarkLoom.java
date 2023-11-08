@@ -11,14 +11,13 @@ import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
-import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
-@Warmup(iterations = 10, timeUnit = TimeUnit.SECONDS, time = 1)
-@Measurement(iterations = 10, timeUnit = TimeUnit.SECONDS, time = 1)
+@Warmup(iterations = 10, time = 1)
+@Measurement(iterations = 10, time = 1)
 @Fork(value = 5)
 @Threads(value = 1)
 @BenchmarkMode(Mode.Throughput)
@@ -46,7 +45,7 @@ public class BenchmarkLoom {
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(
                     ("mariadb".equals(driver) ? "org.mariadb.jdbc.Driver" : "com.mysql.cj.jdbc.Driver"));
-            config.setJdbcUrl(String.format("jdbc:%s://localhost/testj", driver));
+            config.setJdbcUrl(String.format("jdbc:%s://localhost:3306/testj", driver));
             config.setUsername("root");
 
             // in order to compare the same thing with mysql and mariadb driver,
@@ -78,9 +77,10 @@ public class BenchmarkLoom {
     public void testVirtual(MyState state) throws InterruptedException {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
-                try (Connection conn = state.pool.getConnection()) {
+                try (var conn = state.pool.getConnection()) {
                     conn.createStatement().executeQuery("SELECT 1");
                 } catch (SQLException e) {
+                    System.out.println("ERROR !");
                     throw new RuntimeException(e);
                 }
             }));
@@ -93,9 +93,10 @@ public class BenchmarkLoom {
     public void testPlatform(MyState state) throws InterruptedException {
         try (var executor = Executors.newCachedThreadPool()) {
             IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
-                try (Connection conn = state.pool.getConnection()) {
+                try (var conn = state.pool.getConnection()) {
                     conn.createStatement().executeQuery("SELECT 1");
                 } catch (SQLException e) {
+                    System.out.println("ERROR !");
                     throw new RuntimeException(e);
                 }
             }));
