@@ -8,10 +8,13 @@ import org.openjdk.jmh.annotations.*;
 
 import javax.management.JMX;
 import javax.management.MBeanServer;
-import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
+import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
@@ -40,7 +43,7 @@ public class BenchmarkLoom {
         int numberOfConnection;
 
         @Setup(Level.Trial)
-        public void createConnections() throws InterruptedException, MalformedObjectNameException {
+        public void createConnections() throws Exception {
 
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(
@@ -65,6 +68,20 @@ public class BenchmarkLoom {
                 // to ensure pool create all connections
                 Thread.sleep(100);
             }
+            try (Connection conn = pool.getConnection()) {
+                Statement stmt = conn.createStatement();
+                stmt.executeUpdate("DROP TABLE IF EXISTS test100");
+                StringBuilder sb = new StringBuilder("CREATE TABLE test100 (i1 int");
+                StringBuilder sb2 = new StringBuilder("INSERT INTO test100 value (1");
+                for (int i = 2; i <= 100; i++) {
+                    sb.append(",i").append(i).append(" int");
+                    sb2.append(",").append(i);
+                }
+                sb.append(")");
+                sb2.append(")");
+                stmt.executeUpdate(sb.toString());
+                stmt.executeUpdate(sb2.toString());
+            }
         }
 
         @TearDown(Level.Trial)
@@ -74,35 +91,86 @@ public class BenchmarkLoom {
     }
 
     @Benchmark
-    public void testVirtual(MyState state) throws InterruptedException {
+    public void Select1Virtual(MyState state) throws InterruptedException {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
-                try (var conn = state.pool.getConnection()) {
-                    conn.createStatement().executeQuery("SELECT 1");
-                } catch (SQLException e) {
-                    System.out.println("ERROR !");
-                    throw new RuntimeException(e);
-                }
-            }));
-            executor.shutdown();
-            executor.awaitTermination(1, TimeUnit.MINUTES);
+            executeSelect1(state, executor);
         }
     }
 
     @Benchmark
-    public void testPlatform(MyState state) throws InterruptedException {
+    public void Select1Platform(MyState state) throws InterruptedException {
         try (var executor = Executors.newCachedThreadPool()) {
-            IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
-                try (var conn = state.pool.getConnection()) {
-                    conn.createStatement().executeQuery("SELECT 1");
-                } catch (SQLException e) {
-                    System.out.println("ERROR !");
-                    throw new RuntimeException(e);
-                }
-            }));
-            executor.shutdown();
-            executor.awaitTermination(1, TimeUnit.MINUTES);
+            executeSelect1(state, executor);
         }
+    }
+
+    private void executeSelect1 (MyState state, ExecutorService executor) throws InterruptedException {
+        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
+            try (var conn = state.pool.getConnection()) {
+                ResultSet rs = conn.createStatement().executeQuery("SELECT 1");
+                while (rs.next()) rs.getInt(1);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }));
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+    }
+
+    @Benchmark
+    public void Select100ColsVirtual(MyState state) throws InterruptedException {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            executeSelect100Cols(state, executor);
+        }
+    }
+
+    @Benchmark
+    public void Select100ColsPlatform(MyState state) throws InterruptedException {
+        try (var executor = Executors.newCachedThreadPool()) {
+            executeSelect100Cols(state, executor);
+        }
+    }
+    private void executeSelect100Cols(MyState state, ExecutorService executor) throws InterruptedException {
+        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
+            try (var conn = state.pool.getConnection()) {
+                ResultSet rs = conn.createStatement().executeQuery("select * FROM test100");
+                while (rs.next()) {
+                    for (int ii = 0; ii < 100; ii++) rs.getInt(ii);
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }));
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+    }
+
+    @Benchmark
+    public void Select1000RowsVirtual(MyState state) throws InterruptedException {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            executeSelect1000Rows(state, executor);
+        }
+    }
+
+    @Benchmark
+    public void Select1000RowsPlatform(MyState state) throws InterruptedException {
+        try (var executor = Executors.newCachedThreadPool()) {
+            executeSelect1000Rows(state, executor);
+        }
+    }
+    private void executeSelect1000Rows(MyState state, ExecutorService executor) throws InterruptedException {
+        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
+            try (var conn = state.pool.getConnection()) {
+                ResultSet rs = conn.createStatement().executeQuery("select seq from seq_1_to_1000");
+                while (rs.next()) {
+                    rs.getInt(1);
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }));
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
     }
 
 }
