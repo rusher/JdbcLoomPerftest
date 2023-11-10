@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.infra.Blackhole;
 
 import javax.management.JMX;
 import javax.management.MBeanServer;
@@ -91,51 +92,27 @@ public class BenchmarkLoom {
     }
 
     @Benchmark
-    public void Select1Virtual(MyState state) throws InterruptedException {
+    public void Select1Virtual(MyState state, Blackhole blackHole) throws InterruptedException {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            executeSelect1(state, executor);
+            executeSelect1(state, executor, blackHole);
         }
     }
 
     @Benchmark
-    public void Select1Platform(MyState state) throws InterruptedException {
+    public void Select1Platform(MyState state, Blackhole blackHole) throws InterruptedException {
         try (var executor = Executors.newCachedThreadPool()) {
-            executeSelect1(state, executor);
+            executeSelect1(state, executor, blackHole);
         }
     }
 
-    private void executeSelect1 (MyState state, ExecutorService executor) throws InterruptedException {
+    private void executeSelect1 (MyState state, ExecutorService executor, Blackhole blackHole) throws InterruptedException {
         IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
             try (var conn = state.pool.getConnection()) {
-                ResultSet rs = conn.createStatement().executeQuery("SELECT 1");
-                while (rs.next()) rs.getInt(1);
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
-        }));
-        executor.shutdown();
-        executor.awaitTermination(1, TimeUnit.MINUTES);
-    }
-
-    @Benchmark
-    public void Select100ColsVirtual(MyState state) throws InterruptedException {
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            executeSelect100Cols(state, executor);
-        }
-    }
-
-    @Benchmark
-    public void Select100ColsPlatform(MyState state) throws InterruptedException {
-        try (var executor = Executors.newCachedThreadPool()) {
-            executeSelect100Cols(state, executor);
-        }
-    }
-    private void executeSelect100Cols(MyState state, ExecutorService executor) throws InterruptedException {
-        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
-            try (var conn = state.pool.getConnection()) {
-                ResultSet rs = conn.createStatement().executeQuery("select * FROM test100");
-                while (rs.next()) {
-                    for (int ii = 0; ii < 100; ii++) rs.getInt(ii);
+                try (Statement stmt = conn.createStatement()) {
+                    try (ResultSet rs = stmt.executeQuery("select 1")) {
+                        rs.next();
+                        blackHole.consume(rs.getInt(1));
+                    }
                 }
             } catch (SQLException e) {
                 throw new RuntimeException(e);
@@ -146,24 +123,58 @@ public class BenchmarkLoom {
     }
 
     @Benchmark
-    public void Select1000RowsVirtual(MyState state) throws InterruptedException {
+    public void Select100ColsVirtual(MyState state, Blackhole blackHole) throws InterruptedException {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            executeSelect1000Rows(state, executor);
+            executeSelect100Cols(state, executor, blackHole);
         }
     }
 
     @Benchmark
-    public void Select1000RowsPlatform(MyState state) throws InterruptedException {
+    public void Select100ColsPlatform(MyState state, Blackhole blackHole) throws InterruptedException {
         try (var executor = Executors.newCachedThreadPool()) {
-            executeSelect1000Rows(state, executor);
+            executeSelect100Cols(state, executor, blackHole);
         }
     }
-    private void executeSelect1000Rows(MyState state, ExecutorService executor) throws InterruptedException {
+    private void executeSelect100Cols(MyState state, ExecutorService executor, Blackhole blackHole) throws InterruptedException {
         IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
             try (var conn = state.pool.getConnection()) {
-                ResultSet rs = conn.createStatement().executeQuery("select seq from seq_1_to_1000");
-                while (rs.next()) {
-                    rs.getInt(1);
+                try (Statement stmt = conn.createStatement()) {
+                    try (ResultSet rs = stmt.executeQuery("select * FROM test100")) {
+                        rs.next();
+                        for (int ii = 1; ii <= 100; ii++) blackHole.consume(rs.getInt(ii));
+                    }
+                }
+            } catch (SQLException e) {
+                System.out.println(e);
+            }
+        }));
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+    }
+
+    @Benchmark
+    public void Select1000RowsVirtual(MyState state, Blackhole blackHole) throws InterruptedException {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            executeSelect1000Rows(state, executor, blackHole);
+        }
+    }
+
+    @Benchmark
+    public void Select1000RowsPlatform(MyState state, Blackhole blackHole) throws InterruptedException {
+        try (var executor = Executors.newCachedThreadPool()) {
+            executeSelect1000Rows(state, executor, blackHole);
+        }
+    }
+    private void executeSelect1000Rows(MyState state, ExecutorService executor, Blackhole blackHole) throws InterruptedException {
+        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
+            try (var conn = state.pool.getConnection()) {
+                try (Statement stmt = conn.createStatement()) {
+                    try (ResultSet rs = stmt.executeQuery("select seq from seq_1_to_1000")) {
+                        while (rs.next()) {
+                            rs.next();
+                            blackHole.consume(rs.getInt(1));
+                        }
+                    }
                 }
             } catch (SQLException e) {
                 throw new RuntimeException(e);
