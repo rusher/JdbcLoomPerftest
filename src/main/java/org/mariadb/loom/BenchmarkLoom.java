@@ -37,10 +37,10 @@ public class BenchmarkLoom {
         @Param({"mariadb", "mysql"})
         String driver;
 
-        @Param({"1000"})
+        @Param({"100"})
         int numberOfTasks;
 
-        @Param({"100"})
+        @Param({"16"})
         int numberOfConnection;
 
         @Setup(Level.Trial)
@@ -49,8 +49,8 @@ public class BenchmarkLoom {
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(
                     ("mariadb".equals(driver) ? "org.mariadb.jdbc.Driver" : "com.mysql.cj.jdbc.Driver"));
-            config.setJdbcUrl(String.format("jdbc:%s://localhost:3306/testj", driver));
-            config.setUsername("root");
+            config.setJdbcUrl(String.format("jdbc:%s://104.248.141.106:3306/testj", driver));
+            config.setUsername("diego");
 
             // in order to compare the same thing with mysql and mariadb driver,
             config.addDataSourceProperty("sslMode", "DISABLED");
