@@ -50,7 +50,7 @@ public class BenchmarkLoom {
             config.setDriverClassName(
                     ("mariadb".equals(driver) ? "org.mariadb.jdbc.Driver" : "com.mysql.cj.jdbc.Driver"));
             config.setJdbcUrl(String.format("jdbc:%s://104.248.141.106:3306/testj", driver));
-            config.setUsername("diego");
+            config.setUsername("root");
 
             // in order to compare the same thing with mysql and mariadb driver,
             config.addDataSourceProperty("sslMode", "DISABLED");
@@ -86,41 +86,41 @@ public class BenchmarkLoom {
         }
 
         @TearDown(Level.Trial)
-        public void doTearDown() {
+        public void doTearDown() throws SQLException {
             pool.close();
         }
     }
 
-    @Benchmark
-    public void Select1Virtual(MyState state, Blackhole blackHole) throws InterruptedException {
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            executeSelect1(state, executor, blackHole);
-        }
+@Benchmark
+public void Select1Platform(MyState state, Blackhole blackHole) throws InterruptedException {
+    try (var executor = Executors.newCachedThreadPool()) {
+        executeSelect1(state, executor, blackHole);
     }
+}
 
-    @Benchmark
-    public void Select1Platform(MyState state, Blackhole blackHole) throws InterruptedException {
-        try (var executor = Executors.newCachedThreadPool()) {
-            executeSelect1(state, executor, blackHole);
-        }
+@Benchmark
+public void Select1Virtual(MyState state, Blackhole blackHole) throws InterruptedException {
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        executeSelect1(state, executor, blackHole);
     }
+}
 
-    private void executeSelect1 (MyState state, ExecutorService executor, Blackhole blackHole) throws InterruptedException {
-        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
-            try (var conn = state.pool.getConnection()) {
-                try (Statement stmt = conn.createStatement()) {
-                    try (ResultSet rs = stmt.executeQuery("select 1")) {
-                        rs.next();
-                        blackHole.consume(rs.getInt(1));
-                    }
+private void executeSelect1 (MyState state, ExecutorService executor, Blackhole blackHole) throws InterruptedException {
+    IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
+        try (var conn = state.pool.getConnection()) {
+            try (Statement stmt = conn.createStatement()) {
+                try (ResultSet rs = stmt.executeQuery("select 1")) {
+                    rs.next();
+                    blackHole.consume(rs.getInt(1));
                 }
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
             }
-        }));
-        executor.shutdown();
-        executor.awaitTermination(1, TimeUnit.MINUTES);
-    }
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }));
+    executor.shutdown();
+    executor.awaitTermination(1, TimeUnit.MINUTES);
+}
 
     @Benchmark
     public void Select100ColsVirtual(MyState state, Blackhole blackHole) throws InterruptedException {
@@ -151,6 +151,34 @@ public class BenchmarkLoom {
         executor.shutdown();
         executor.awaitTermination(1, TimeUnit.MINUTES);
     }
+
+    @Benchmark
+    public void Do1Virtual(MyState state, Blackhole blackHole) throws InterruptedException {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            executeDo1(state, executor, blackHole);
+        }
+    }
+
+    @Benchmark
+    public void Do1Platform(MyState state, Blackhole blackHole) throws InterruptedException {
+        try (var executor = Executors.newCachedThreadPool()) {
+            executeDo1(state, executor, blackHole);
+        }
+    }
+    private void executeDo1(MyState state, ExecutorService executor, Blackhole blackHole) throws InterruptedException {
+        IntStream.range(0, state.numberOfTasks).forEach(i -> executor.submit(() -> {
+            try (var conn = state.pool.getConnection()) {
+                try (Statement stmt = conn.createStatement()) {
+                    blackHole.consume(stmt.executeUpdate("DO 1"));
+                }
+            } catch (SQLException e) {
+                System.out.println(e);
+            }
+        }));
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.MINUTES);
+    }
+
 
     @Benchmark
     public void Select1000RowsVirtual(MyState state, Blackhole blackHole) throws InterruptedException {
