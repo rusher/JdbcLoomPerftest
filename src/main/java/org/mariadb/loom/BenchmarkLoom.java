@@ -80,6 +80,21 @@ public class BenchmarkLoom {
     }
 
     @Benchmark
+    public void Select1R2DBC(MyState state, Blackhole blackHole) throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(state.numberOfTasks);
+        IntStream.range(0, state.numberOfTasks).forEach(i -> {
+            state.poolR2Dbc.create()
+                    .flatMap(connection -> ((Flux<MariadbResult>) connection.createStatement("select 1").execute())
+                            .flatMap(it -> it.map((row, metadata) -> row.get(0)))
+                            .single()
+                            .flatMap(l -> {
+                                latch.countDown();
+                                return (Mono<Void>)connection.close();
+                            })).subscribe();
+        });
+        latch.await();
+    }
+    @Benchmark
     public void Select100ColsVirtual(MyState state, Blackhole blackHole) throws InterruptedException {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             executeSelect100Cols(state, executor, blackHole);
